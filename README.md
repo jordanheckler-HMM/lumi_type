@@ -68,6 +68,7 @@ export LUMI_PORCUPINE_ACCESS_KEY="YOUR_PICOVOICE_ACCESS_KEY"
 ```
 
 Note: current Porcupine runtimes require `LUMI_PORCUPINE_ACCESS_KEY` for wake-word initialization. If not provided, LumiType starts normally and push-to-talk still works, but wake-word detection is disabled.
+If you set the key with `launchctl setenv LUMI_PORCUPINE_ACCESS_KEY ...`, LumiType now reads it at runtime even when launched from Finder.
 
 ## Build and run
 
@@ -137,3 +138,4 @@ git push origin v0.1.0
 
 - Bundle includes `NSMicrophoneUsageDescription`; macOS should now prompt for mic access on first launch.
 - You still need to grant Accessibility permission for keystroke injection.
+- If microphone access is granted after startup, LumiType will retry audio capture without requiring an app restart.

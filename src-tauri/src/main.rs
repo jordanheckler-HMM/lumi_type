@@ -154,16 +154,14 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<()> {
     TrayIconBuilder::with_id("lumitype-tray")
         .menu(&menu)
         .icon(icon)
-        .on_menu_event(|app, event| {
-            match event.id.as_ref() {
-                "settings" => {
-                    let _ = show_settings_window(app);
-                }
-                "quit" => {
-                    std::process::exit(0);
-                }
-                _ => {}
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "settings" => {
+                let _ = show_settings_window(app);
             }
+            "quit" => {
+                std::process::exit(0);
+            }
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
@@ -211,7 +209,11 @@ fn position_overlay_window(app: &tauri::AppHandle) -> Result<()> {
     Ok(())
 }
 
-fn register_shortcuts(app: &tauri::AppHandle, engine: &EngineHandle, ptt_hotkey: &str) -> Result<()> {
+fn register_shortcuts(
+    app: &tauri::AppHandle,
+    engine: &EngineHandle,
+    ptt_hotkey: &str,
+) -> Result<()> {
     let shortcuts = app.global_shortcut();
     shortcuts.unregister_all()?;
 
@@ -408,8 +410,8 @@ fn tray_icon_rgba(state: TrayState) -> (Vec<u8>, u32, u32) {
 }
 
 fn settings_path() -> Result<PathBuf> {
-    let dirs =
-        ProjectDirs::from("com", "LumiType", "LumiType").context("unable to resolve config directory")?;
+    let dirs = ProjectDirs::from("com", "LumiType", "LumiType")
+        .context("unable to resolve config directory")?;
     let path = dirs.config_dir().join("settings.json");
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("failed to create settings directory")?;
@@ -425,8 +427,8 @@ fn load_settings(path: &Path) -> Result<EngineSettings> {
     }
 
     let content = fs::read_to_string(path).context("failed to read settings file")?;
-    let settings =
-        serde_json::from_str::<EngineSettings>(&content).context("failed to parse settings file")?;
+    let settings = serde_json::from_str::<EngineSettings>(&content)
+        .context("failed to parse settings file")?;
     Ok(settings)
 }
 
@@ -469,4 +471,29 @@ fn configure_runtime_env(app: &tauri::AppHandle) {
             }
         }
     }
+
+    if std::env::var_os("LUMI_PORCUPINE_ACCESS_KEY").is_none() {
+        if let Some(access_key) = launchctl_getenv("LUMI_PORCUPINE_ACCESS_KEY") {
+            std::env::set_var("LUMI_PORCUPINE_ACCESS_KEY", access_key);
+        }
+    }
+}
+
+fn launchctl_getenv(key: &str) -> Option<String> {
+    let output = std::process::Command::new("/bin/launchctl")
+        .arg("getenv")
+        .arg(key)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let value = String::from_utf8(output.stdout).ok()?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    Some(trimmed.to_string())
 }

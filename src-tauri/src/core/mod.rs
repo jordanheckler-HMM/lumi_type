@@ -92,12 +92,22 @@ impl EngineHandle {
             *self.settings.write() = next.clone();
         }
 
-        let _ = self.command_tx.send(EngineCommand::SetEnabled(next.enabled)).await;
+        let _ = self
+            .command_tx
+            .send(EngineCommand::SetEnabled(next.enabled))
+            .await;
+        let _ = self
+            .command_tx
+            .send(EngineCommand::UpdateMicrophone(next.microphone.clone()))
+            .await;
         let _ = self
             .command_tx
             .send(EngineCommand::UpdateSensitivity(next.sensitivity))
             .await;
-        let _ = self.command_tx.send(EngineCommand::UpdateModel(next.model)).await;
+        let _ = self
+            .command_tx
+            .send(EngineCommand::UpdateModel(next.model))
+            .await;
     }
 }
 
@@ -112,16 +122,6 @@ pub fn spawn_engine(initial_settings: EngineSettings, model_root: PathBuf) -> Re
     let (transcriber_tx, transcriber_rx) = mpsc::channel::<TranscriberMessage>(128);
     let (injector_tx, injector_rx) = mpsc::channel::<InjectionMessage>(128);
 
-    let audio_capture = audio::AudioCapture::start(
-        command_tx.clone(),
-        Some(initial_settings.microphone.clone()),
-    )
-    .ok();
-    let audio_ready = audio_capture.is_some();
-    if let Some(capture) = audio_capture {
-        let _ = Box::leak(Box::new(capture));
-    }
-
     let wake_config = WakeWordConfig::from_model_root(&model_root, initial_settings.sensitivity)
         .with_overrides_from_env();
     wake_word::spawn_wake_listener(wake_rx, command_tx.clone(), wake_config);
@@ -135,16 +135,17 @@ pub fn spawn_engine(initial_settings: EngineSettings, model_root: PathBuf) -> Re
     injector::spawn_injection_worker(injector_rx);
 
     let events_tx_for_loop = events_tx.clone();
+    let command_tx_for_audio = command_tx.clone();
     std::thread::spawn(move || {
+        let mut preferred_microphone = initial_settings.microphone.clone();
+        let mut audio_capture = try_start_audio_capture(
+            &command_tx_for_audio,
+            preferred_microphone.as_str(),
+            &events_tx_for_loop,
+        );
+
         let mut machine = StateMachine::new(initial_settings.enabled);
         emit_state_events(&events_tx_for_loop, &machine);
-
-        if !audio_ready {
-            let _ = events_tx_for_loop.send(EngineEvent::Error(
-                "Unable to start microphone stream; check microphone permission and selected device."
-                    .to_string(),
-            ));
-        }
 
         while let Some(command) = command_rx.blocking_recv() {
             match command {
@@ -178,8 +179,12 @@ pub fn spawn_engine(initial_settings: EngineSettings, model_root: PathBuf) -> Re
                     }
                 }
                 EngineCommand::TranscriptionDelta(delta) => {
-                    if matches!(machine.state(), DictationState::Dictating | DictationState::Stopping) {
-                        let _ = events_tx_for_loop.send(EngineEvent::OverlayTextDelta(delta.clone()));
+                    if matches!(
+                        machine.state(),
+                        DictationState::Dictating | DictationState::Stopping
+                    ) {
+                        let _ =
+                            events_tx_for_loop.send(EngineEvent::OverlayTextDelta(delta.clone()));
                         let _ = injector_tx.blocking_send(InjectionMessage::Delta(delta));
                     }
                 }
@@ -216,6 +221,14 @@ pub fn spawn_engine(initial_settings: EngineSettings, model_root: PathBuf) -> Re
                         emit_state_events(&events_tx_for_loop, &machine);
                     }
                 }
+                EngineCommand::UpdateMicrophone(microphone) => {
+                    preferred_microphone = microphone;
+                    audio_capture = try_start_audio_capture(
+                        &command_tx_for_audio,
+                        preferred_microphone.as_str(),
+                        &events_tx_for_loop,
+                    );
+                }
                 EngineCommand::UpdateSensitivity(value) => {
                     let _ = vad_tx.blocking_send(VadMessage::SetSensitivity(value));
                 }
@@ -223,6 +236,13 @@ pub fn spawn_engine(initial_settings: EngineSettings, model_root: PathBuf) -> Re
                     let _ = transcriber_tx.blocking_send(TranscriberMessage::UpdateModel(model));
                 }
                 EngineCommand::PermissionsChecked(status) => {
+                    if status.microphone && audio_capture.is_none() {
+                        audio_capture = try_start_audio_capture(
+                            &command_tx_for_audio,
+                            preferred_microphone.as_str(),
+                            &events_tx_for_loop,
+                        );
+                    }
                     if !status.all_granted() {
                         let _ = events_tx_for_loop.send(EngineEvent::PermissionsRequired(status));
                     }
@@ -241,4 +261,27 @@ pub fn spawn_engine(initial_settings: EngineSettings, model_root: PathBuf) -> Re
 fn emit_state_events(events_tx: &broadcast::Sender<EngineEvent>, machine: &StateMachine) {
     let _ = events_tx.send(EngineEvent::StateChanged(machine.state()));
     let _ = events_tx.send(EngineEvent::TrayStateChanged(machine.tray_state()));
+}
+
+fn try_start_audio_capture(
+    command_tx: &mpsc::Sender<EngineCommand>,
+    preferred_microphone: &str,
+    events_tx: &broadcast::Sender<EngineEvent>,
+) -> Option<audio::AudioCapture> {
+    let preferred = if preferred_microphone.trim().is_empty() {
+        None
+    } else {
+        Some(preferred_microphone.to_string())
+    };
+
+    match audio::AudioCapture::start(command_tx.clone(), preferred) {
+        Ok(capture) => Some(capture),
+        Err(_) => {
+            let _ = events_tx.send(EngineEvent::Error(
+                "Unable to start microphone stream; check microphone permission and selected device."
+                    .to_string(),
+            ));
+            None
+        }
+    }
 }

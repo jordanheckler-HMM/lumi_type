@@ -28,6 +28,7 @@ pub enum EngineCommand {
     CancelDictation,
     UndoLastDictation,
     SetEnabled(bool),
+    UpdateMicrophone(String),
     UpdateSensitivity(f32),
     UpdateModel(TranscriptionModel),
     PermissionsChecked(PermissionStatus),
@@ -91,7 +92,10 @@ impl StateMachine {
     }
 
     pub fn finish_stopping(&mut self) -> bool {
-        if !matches!(self.state, DictationState::Stopping | DictationState::Dictating) {
+        if !matches!(
+            self.state,
+            DictationState::Stopping | DictationState::Dictating
+        ) {
             return false;
         }
         let next = if self.enabled {
@@ -103,7 +107,10 @@ impl StateMachine {
     }
 
     pub fn cancel_dictation(&mut self) -> bool {
-        if !matches!(self.state, DictationState::Dictating | DictationState::Stopping) {
+        if !matches!(
+            self.state,
+            DictationState::Dictating | DictationState::Stopping
+        ) {
             return false;
         }
         let next = if self.enabled {
