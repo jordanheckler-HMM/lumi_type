@@ -6,7 +6,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
@@ -222,10 +222,21 @@ fn register_shortcuts(
 
     let ptt = normalize_shortcut(ptt_hotkey);
     let ptt_engine = engine.clone();
+    let ptt_pressed_at = Arc::new(RwLock::new(None::<Instant>));
+    let ptt_pressed_at_for_handler = ptt_pressed_at.clone();
     shortcuts.on_shortcut(ptt.as_str(), move |_app, _shortcut, event| {
         if event.state == ShortcutState::Pressed {
+            *ptt_pressed_at_for_handler.write() = Some(Instant::now());
             ptt_engine.send_blocking(EngineCommand::PushToTalkTriggered);
         } else if event.state == ShortcutState::Released {
+            // Some macOS/global-hotkey combinations can emit a release almost
+            // immediately after press. Ignore these short pulses so dictation
+            // does not terminate before audio is captured.
+            if let Some(pressed_at) = *ptt_pressed_at_for_handler.read() {
+                if pressed_at.elapsed() < Duration::from_millis(180) {
+                    return;
+                }
+            }
             ptt_engine.send_blocking(EngineCommand::SilenceTimeout);
         }
     })?;
@@ -499,4 +510,17 @@ fn launchctl_getenv(key: &str) -> Option<String> {
     }
 
     Some(trimmed.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_shortcut;
+
+    #[test]
+    fn normalize_shortcut_maps_aliases() {
+        assert_eq!(
+            normalize_shortcut("Cmd+Option+Esc"),
+            "Command+Alt+Escape".to_string()
+        );
+    }
 }
