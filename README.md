@@ -139,3 +139,4 @@ git push origin v0.1.0
 - Bundle includes `NSMicrophoneUsageDescription`; macOS should now prompt for mic access on first launch.
 - You still need to grant Accessibility permission for keystroke injection.
 - If microphone access is granted after startup, LumiType will retry audio capture without requiring an app restart.
+- On startup, LumiType now proactively requests missing permissions to recover from stale macOS TCC entries after app upgrades.

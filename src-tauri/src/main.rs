@@ -122,7 +122,10 @@ fn run() -> Result<()> {
                 .context("failed to register keyboard shortcuts")?;
             position_overlay_window(&app_handle).ok();
 
-            let status = permissions::check_permissions();
+            let mut status = permissions::check_permissions();
+            if !status.all_granted() {
+                status = permissions::request_permissions();
+            }
             engine.send_blocking(EngineCommand::PermissionsChecked(status));
 
             wire_engine_events(app_handle.clone(), engine);
