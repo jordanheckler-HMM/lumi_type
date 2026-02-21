@@ -50,5 +50,5 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "LumiType ${{ github.ref_name }}"
           releaseBody: "Automated release for LumiType ${{ github.ref_name }}"
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false

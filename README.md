@@ -120,9 +120,7 @@ git push origin v0.1.0
 3. GitHub Actions workflow `release.yml` will:
    - Download required runtime assets
    - Build signed macOS bundles (`.app`, `.dmg`) and updater artifacts
-   - Create a draft GitHub Release with all artifacts attached
-
-Promote the draft release to publish it. Published assets become available to app auto-update checks.
+   - Publish a GitHub Release with all artifacts attached
 
 ## Privacy behavior
 
