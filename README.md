@@ -132,3 +132,8 @@ git push origin v0.1.0
 - No audio persistence
 - No transcript logging
 - No analytics
+
+## macOS permissions
+
+- Bundle includes `NSMicrophoneUsageDescription`; macOS should now prompt for mic access on first launch.
+- You still need to grant Accessibility permission for keystroke injection.
