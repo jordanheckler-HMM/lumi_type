@@ -100,12 +100,12 @@ fn run() -> Result<()> {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let app_handle = app.handle().clone();
-            setup_tray(&app_handle)?;
             configure_runtime_env(&app_handle);
 
             let model_root = detect_model_root(&app_handle);
             let engine = core::spawn_engine(settings.clone(), model_root)
                 .context("failed to start core engine")?;
+            setup_tray(&app_handle, engine.clone())?;
 
             let hotkey = Arc::new(RwLock::new(settings.push_to_talk_hotkey.clone()));
             let state = AppState {
@@ -145,11 +145,26 @@ fn run() -> Result<()> {
         .context("tauri app exited with error")
 }
 
-fn setup_tray(app: &tauri::AppHandle) -> Result<()> {
+fn setup_tray(app: &tauri::AppHandle, engine: EngineHandle) -> Result<()> {
+    let start_item =
+        MenuItem::with_id(app, "start_dictation", "Start Dictation", true, None::<&str>)?;
+    let stop_item =
+        MenuItem::with_id(app, "stop_dictation", "Stop Dictation", true, None::<&str>)?;
     let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&settings_item, &separator, &quit_item])?;
+    let separator_bottom = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(
+        app,
+        &[
+            &start_item,
+            &stop_item,
+            &separator,
+            &settings_item,
+            &separator_bottom,
+            &quit_item,
+        ],
+    )?;
 
     let (rgba, width, height) = tray_icon_rgba(TrayState::Listening);
     let icon = Image::new_owned(rgba, width, height);
@@ -157,7 +172,13 @@ fn setup_tray(app: &tauri::AppHandle) -> Result<()> {
     TrayIconBuilder::with_id("lumitype-tray")
         .menu(&menu)
         .icon(icon)
-        .on_menu_event(|app, event| match event.id.as_ref() {
+        .on_menu_event(move |app, event| match event.id.as_ref() {
+            "start_dictation" => {
+                engine.send_blocking(EngineCommand::PushToTalkTriggered);
+            }
+            "stop_dictation" => {
+                engine.send_blocking(EngineCommand::SilenceTimeout);
+            }
             "settings" => {
                 let _ = show_settings_window(app);
             }

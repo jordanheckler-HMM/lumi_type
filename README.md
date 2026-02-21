@@ -141,3 +141,4 @@ git push origin v0.1.0
 - If microphone access is granted after startup, LumiType will retry audio capture without requiring an app restart.
 - On startup, LumiType now proactively requests missing permissions to recover from stale macOS TCC entries after app upgrades.
 - Push-to-talk now starts dictation on shortcut press and ignores shortcut release; dictation ends via 1.0s VAD silence timeout or `Esc`.
+- Tray menu includes `Start Dictation` and `Stop Dictation` for reliable activation when global shortcut handling is blocked by macOS permission state.

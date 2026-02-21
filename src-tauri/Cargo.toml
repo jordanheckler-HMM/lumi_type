@@ -1,6 +1,6 @@
 [package]
 name = "lumitype"
-version = "0.1.8"
+version = "0.1.9"
 description = "Offline wake-word dictation menu-bar tool for macOS"
 authors = ["LumiType"]
 license = "Proprietary"
