@@ -28,6 +28,7 @@ jobs:
       - name: Prepare runtime assets
         run: |
           mkdir -p src-tauri/models
+          export LUMI_PORCUPINE_DYLIB="$PWD/src-tauri/models/libpv_porcupine.dylib"
 
           curl -L --fail -o src-tauri/models/ggml-base.en.bin \
             https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
@@ -35,8 +36,7 @@ jobs:
           curl -L --fail -o src-tauri/models/ggml-tiny.en.bin \
             https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
 
-          LUMI_PORCUPINE_DYLIB="$PWD/src-tauri/models/libpv_porcupine.dylib" \
-            ./scripts/setup-porcupine-fallback.sh
+          ./scripts/setup-porcupine-fallback.sh
 
           ./scripts/verify-assets.sh
 
