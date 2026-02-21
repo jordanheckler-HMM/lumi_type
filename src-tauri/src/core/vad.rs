@@ -38,6 +38,7 @@ pub fn spawn_vad_worker(
                 }
                 VadMessage::Audio(frame) => {
                     let resampled = resample_mono_to_16k(&frame.samples, frame.sample_rate);
+                    let energy_threshold = energy_threshold_from_sensitivity(sensitivity);
                     for chunk in resampled.chunks(320) {
                         if chunk.len() != 320 {
                             continue;
@@ -49,7 +50,7 @@ pub fn spawn_vad_worker(
                             .map(|sample| (*sample as f32).abs() / i16::MAX as f32)
                             .sum::<f32>()
                             / chunk.len() as f32
-                            > sensitivity;
+                            > energy_threshold;
 
                         if vad_speech || energy_speech {
                             silence_started = None;
@@ -70,6 +71,13 @@ pub fn spawn_vad_worker(
             }
         }
     });
+}
+
+fn energy_threshold_from_sensitivity(sensitivity: f32) -> f32 {
+    // Keep this threshold in a realistic speech-energy range.
+    // Higher sensitivity should require less energy to classify as speech.
+    let clamped = sensitivity.clamp(0.01, 1.0);
+    0.12 - clamped * 0.10
 }
 
 pub fn resample_mono_to_16k(samples: &[i16], source_rate: u32) -> Vec<i16> {
@@ -101,7 +109,7 @@ pub fn resample_mono_to_16k(samples: &[i16], source_rate: u32) -> Vec<i16> {
 
 #[cfg(test)]
 mod tests {
-    use super::resample_mono_to_16k;
+    use super::{energy_threshold_from_sensitivity, resample_mono_to_16k};
 
     #[test]
     fn resample_keeps_identity_at_16k() {
@@ -114,5 +122,12 @@ mod tests {
         let input = vec![0i16; 48_000 / 10];
         let output = resample_mono_to_16k(&input, 48_000);
         assert!((output.len() as i32 - 1_600).abs() < 10);
+    }
+
+    #[test]
+    fn sensitivity_maps_to_lower_energy_threshold_when_higher() {
+        let low = energy_threshold_from_sensitivity(0.1);
+        let high = energy_threshold_from_sensitivity(0.9);
+        assert!(high < low);
     }
 }

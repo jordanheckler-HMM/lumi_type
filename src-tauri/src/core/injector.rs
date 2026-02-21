@@ -25,11 +25,18 @@ pub fn spawn_injection_worker(mut rx: mpsc::Receiver<InjectionMessage>) {
                     if delta.is_empty() || secure_input_enabled() {
                         continue;
                     }
-                    if let Some(enigo) = enigo.as_mut() {
+                    let mut reset_enigo = false;
+                    if let Some(writer) = ensure_enigo(&mut enigo) {
                         for ch in delta.chars() {
-                            let _ = enigo.text(&ch.to_string());
+                            if writer.text(&ch.to_string()).is_err() {
+                                reset_enigo = true;
+                                break;
+                            }
                             active_session.push(ch);
                         }
+                    }
+                    if reset_enigo {
+                        enigo = None;
                     }
                 }
                 InjectionMessage::CommitSession => {
@@ -37,8 +44,14 @@ pub fn spawn_injection_worker(mut rx: mpsc::Receiver<InjectionMessage>) {
                     active_session.clear();
                 }
                 InjectionMessage::CancelSession => {
-                    if let Some(enigo) = enigo.as_mut() {
-                        backspace_text(enigo, active_session.chars().count());
+                    let mut reset_enigo = false;
+                    if let Some(writer) = ensure_enigo(&mut enigo) {
+                        if backspace_text(writer, active_session.chars().count()).is_err() {
+                            reset_enigo = true;
+                        }
+                    }
+                    if reset_enigo {
+                        enigo = None;
                     }
                     active_session.clear();
                 }
@@ -46,8 +59,14 @@ pub fn spawn_injection_worker(mut rx: mpsc::Receiver<InjectionMessage>) {
                     if last_session.is_empty() {
                         continue;
                     }
-                    if let Some(enigo) = enigo.as_mut() {
-                        backspace_text(enigo, last_session.chars().count());
+                    let mut reset_enigo = false;
+                    if let Some(writer) = ensure_enigo(&mut enigo) {
+                        if backspace_text(writer, last_session.chars().count()).is_err() {
+                            reset_enigo = true;
+                        }
+                    }
+                    if reset_enigo {
+                        enigo = None;
                     }
                     last_session.clear();
                 }
@@ -56,10 +75,18 @@ pub fn spawn_injection_worker(mut rx: mpsc::Receiver<InjectionMessage>) {
     });
 }
 
-fn backspace_text(enigo: &mut Enigo, count: usize) {
-    for _ in 0..count {
-        let _ = enigo.key(Key::Backspace, Direction::Click);
+fn ensure_enigo(enigo: &mut Option<Enigo>) -> Option<&mut Enigo> {
+    if enigo.is_none() {
+        *enigo = Enigo::new(&Settings::default()).ok();
     }
+    enigo.as_mut()
+}
+
+fn backspace_text(enigo: &mut Enigo, count: usize) -> Result<(), ()> {
+    for _ in 0..count {
+        enigo.key(Key::Backspace, Direction::Click).map_err(|_| ())?;
+    }
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
