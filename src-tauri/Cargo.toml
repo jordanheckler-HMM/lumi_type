@@ -1,0 +1,36 @@
+[package]
+name = "lumitype"
+version = "0.1.0"
+description = "Offline wake-word dictation menu-bar tool for macOS"
+authors = ["LumiType"]
+license = "Proprietary"
+edition = "2021"
+rust-version = "1.77"
+
+[build-dependencies]
+tauri-build = { version = "2.5", features = [] }
+
+[dependencies]
+anyhow = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.10.2", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-global-shortcut = "2.3.1"
+tokio = { version = "1.37", features = ["rt-multi-thread", "macros", "sync", "time"] }
+cpal = "0.15"
+webrtc-vad = "0.4"
+libloading = "0.8"
+enigo = "0.2"
+directories = "5.0"
+parking_lot = "0.12"
+thiserror = "1.0"
+once_cell = "1.19"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+whisper-rs = { version = "0.15.1", features = ["metal"] }
+macos-accessibility-client = "0.0.1"
+cocoa = "0.25"
+objc = "0.2"
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+whisper-rs = "0.15.1"

@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LumiType Settings</title>
+    <link rel="stylesheet" href="settings.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header>
+        <h1>LumiType</h1>
+        <p>Offline, always-on dictation for macOS.</p>
+      </header>
+
+      <section>
+        <h2>General</h2>
+        <label class="row">
+          <span>Enable LumiType</span>
+          <input id="enabled" type="checkbox" />
+        </label>
+        <label class="row">
+          <span>Launch at startup</span>
+          <input id="launch_at_startup" type="checkbox" />
+        </label>
+      </section>
+
+      <section>
+        <h2>Audio</h2>
+        <label class="field">
+          <span>Microphone</span>
+          <select id="microphone"></select>
+        </label>
+        <label class="field">
+          <span>Sensitivity</span>
+          <input id="sensitivity" type="range" min="0.05" max="0.95" step="0.01" />
+          <output id="sensitivity_value">0.45</output>
+        </label>
+      </section>
+
+      <section>
+        <h2>Model</h2>
+        <label class="field">
+          <span>Transcription model</span>
+          <select id="model">
+            <option value="base_en">base.en (default)</option>
+            <option value="tiny_en">tiny.en (fallback)</option>
+          </select>
+        </label>
+      </section>
+
+      <section>
+        <h2>Hotkey</h2>
+        <label class="field">
+          <span>Push-to-talk fallback</span>
+          <input id="push_to_talk_hotkey" type="text" placeholder="Cmd+Shift+Space" />
+        </label>
+      </section>
+
+      <section id="permissions_notice" class="hidden">
+        <h2>Permissions Required</h2>
+        <p>LumiType needs Microphone + Accessibility access to listen and inject text.</p>
+      </section>
+
+      <footer>
+        <button id="request_permissions" type="button">Request Permissions</button>
+        <button id="save" type="button">Save</button>
+      </footer>
+
+      <p id="status" aria-live="polite"></p>
+    </main>
+
+    <script src="settings.js"></script>
+  </body>
+</html>
