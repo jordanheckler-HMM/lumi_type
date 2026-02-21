@@ -383,17 +383,21 @@ fn detect_model_root(app: &tauri::AppHandle) -> PathBuf {
         return PathBuf::from(path);
     }
 
+    let local = PathBuf::from("src-tauri/models");
     if let Ok(resource_dir) = app.path().resource_dir() {
         let bundled = resource_dir.join("models");
-        if bundled.exists() {
+        if model_dir_looks_ready(&bundled) {
             return bundled;
         }
     }
 
-    let local = PathBuf::from("src-tauri/models");
     if local.exists() {
         return local;
     }
 
     PathBuf::from("models")
+}
+
+fn model_dir_looks_ready(path: &Path) -> bool {
+    path.join("ggml-base.en.bin").exists() && path.join("porcupine_params.pv").exists()
 }

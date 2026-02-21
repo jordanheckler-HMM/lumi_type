@@ -19,6 +19,7 @@ pub struct WakeWordConfig {
     pub porcupine_library: PathBuf,
     pub model_path: PathBuf,
     pub keyword_path: PathBuf,
+    pub keyword_fallback_path: Option<PathBuf>,
     pub sensitivity: f32,
 }
 
@@ -28,6 +29,7 @@ impl WakeWordConfig {
             porcupine_library: default_porcupine_library_path(),
             model_path: model_root.join("porcupine_params.pv"),
             keyword_path: model_root.join("hey-lumi-mac.ppn"),
+            keyword_fallback_path: Some(model_root.join("porcupine_mac.ppn")),
             sensitivity,
         }
     }
@@ -41,6 +43,10 @@ impl WakeWordConfig {
         }
         if let Ok(value) = std::env::var("LUMI_PORCUPINE_KEYWORD") {
             self.keyword_path = PathBuf::from(value);
+            self.keyword_fallback_path = None;
+        }
+        if let Ok(value) = std::env::var("LUMI_PORCUPINE_FALLBACK_KEYWORD") {
+            self.keyword_fallback_path = Some(PathBuf::from(value));
         }
         self
     }
@@ -59,6 +65,13 @@ pub fn spawn_wake_listener(
                 return;
             }
         };
+        if detector.keyword_path() != config.keyword_path.as_path() {
+            eprintln!(
+                "wake-word fallback active (using {} instead of {})",
+                detector.keyword_path().display(),
+                config.keyword_path.display()
+            );
+        }
 
         while let Some(frame) = rx.recv().await {
             if detector.process_frame(&frame).unwrap_or(false) {
@@ -95,6 +108,7 @@ type PorcupineDeleteFn = unsafe extern "C" fn(object: *mut c_void);
 struct PorcupineDetector {
     _library: Library,
     object: *mut c_void,
+    keyword_path: PathBuf,
     frame_length: usize,
     process: PorcupineProcessFn,
     delete: PorcupineDeleteFn,
@@ -108,9 +122,25 @@ impl PorcupineDetector {
         if !config.model_path.exists() {
             anyhow::bail!("missing Porcupine model file at {}", config.model_path.display());
         }
-        if !config.keyword_path.exists() {
-            anyhow::bail!("missing wake keyword file at {}", config.keyword_path.display());
-        }
+
+        let keyword_path = if config.keyword_path.exists() {
+            config.keyword_path.clone()
+        } else if let Some(fallback) = config.keyword_fallback_path.as_ref().filter(|p| p.exists()) {
+            fallback.clone()
+        } else {
+            match &config.keyword_fallback_path {
+                Some(fallback) => {
+                    anyhow::bail!(
+                        "missing wake keyword files at {} and {}",
+                        config.keyword_path.display(),
+                        fallback.display()
+                    );
+                }
+                None => {
+                    anyhow::bail!("missing wake keyword file at {}", config.keyword_path.display());
+                }
+            }
+        };
 
         let library = unsafe { Library::new(&config.porcupine_library) }
             .with_context(|| format!("unable to load Porcupine dylib at {}", config.porcupine_library.display()))?;
@@ -137,7 +167,7 @@ impl PorcupineDetector {
         };
 
         let model = CString::new(config.model_path.to_string_lossy().to_string())?;
-        let keyword = CString::new(config.keyword_path.to_string_lossy().to_string())?;
+        let keyword = CString::new(keyword_path.to_string_lossy().to_string())?;
         let mut object = std::ptr::null_mut();
         let status = unsafe {
             init(
@@ -156,11 +186,16 @@ impl PorcupineDetector {
         Ok(Self {
             _library: library,
             object,
+            keyword_path,
             frame_length,
             process,
             delete,
             frame_buffer: Vec::with_capacity(frame_length * 2),
         })
+    }
+
+    fn keyword_path(&self) -> &Path {
+        &self.keyword_path
     }
 
     fn process_frame(&mut self, frame: &AudioFrame) -> Result<bool> {

@@ -1,4 +1,7 @@
 /target
 /src-tauri/target
 /src-tauri/gen
+/src-tauri/models/*
+!/src-tauri/models/.gitkeep
+/docs/runtime-benchmark.txt
 .DS_Store

@@ -44,6 +44,14 @@ Place these files in `src-tauri/models`:
 - `porcupine_params.pv`
 - `hey-lumi-mac.ppn` (custom keyword model for `"Hey Lumi"`)
 
+Quick fallback setup (installs official Porcupine runtime + default `porcupine` keyword):
+
+```bash
+./scripts/setup-porcupine-fallback.sh
+```
+
+This enables local testing immediately, but production wake phrase behavior still requires generating `hey-lumi-mac.ppn`.
+
 Install Porcupine dynamic library at one of:
 
 - `/opt/homebrew/lib/libpv_porcupine.dylib` (default Apple Silicon path)
@@ -55,6 +63,7 @@ Optional overrides:
 export LUMI_MODEL_DIR="$(pwd)/src-tauri/models"
 export LUMI_PORCUPINE_MODEL="$(pwd)/src-tauri/models/porcupine_params.pv"
 export LUMI_PORCUPINE_KEYWORD="$(pwd)/src-tauri/models/hey-lumi-mac.ppn"
+export LUMI_PORCUPINE_FALLBACK_KEYWORD="$(pwd)/src-tauri/models/porcupine_mac.ppn"
 ```
 
 ## Build and run

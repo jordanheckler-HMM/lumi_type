@@ -11,7 +11,8 @@ This document defines concrete checks for the remaining acceptance criteria.
 Expected:
 
 - exits `0`
-- all required files reported as `[ok]`
+- if custom wake file exists: all required files reported as `[ok]`
+- if only fallback keyword exists: script reports `[warn]` for missing `Hey Lumi` keyword
 
 ## 2) 10 Consecutive Dictation Stability
 
@@ -47,12 +48,13 @@ cargo tauri dev --no-watch
 Then verify manually:
 
 1. Say wake phrase `Hey Lumi` and confirm overlay appears under menu bar.
-2. Confirm mirrored waveform animates with microphone intensity.
-3. Dictate into a normal text field; text should stream while speaking.
-4. Stop speaking for ~1 second and confirm dictation stops and overlay fades.
-5. Press `Esc` during dictation and verify current injected session is rolled back.
-6. Press `Cmd+Option+Z` after a completed dictation and verify last injected block is removed.
-7. Focus a secure input/password field and verify no text is injected.
+2. If fallback keyword mode is active, use `porcupine` wake phrase until `hey-lumi-mac.ppn` is installed.
+3. Confirm mirrored waveform animates with microphone intensity.
+4. Dictate into a normal text field; text should stream while speaking.
+5. Stop speaking for ~1 second and confirm dictation stops and overlay fades.
+6. Press `Esc` during dictation and verify current injected session is rolled back.
+7. Press `Cmd+Option+Z` after a completed dictation and verify last injected block is removed.
+8. Focus a secure input/password field and verify no text is injected.
 
 ## 5) Latency Measurement (Manual)
 
