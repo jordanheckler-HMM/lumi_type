@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+
+      - name: Prepare runtime assets
+        run: |
+          mkdir -p src-tauri/models
+
+          curl -L --fail -o src-tauri/models/ggml-base.en.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+
+          curl -L --fail -o src-tauri/models/ggml-tiny.en.bin \
+            https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+
+          LUMI_PORCUPINE_DYLIB="$PWD/src-tauri/models/libpv_porcupine.dylib" \
+            ./scripts/setup-porcupine-fallback.sh
+
+          ./scripts/verify-assets.sh
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "LumiType ${{ github.ref_name }}"
+          releaseBody: "Automated release for LumiType ${{ github.ref_name }}"
+          releaseDraft: true
+          prerelease: false

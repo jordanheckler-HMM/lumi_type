@@ -24,7 +24,9 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager,
 };
+use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
+use tauri_plugin_updater::UpdaterExt;
 
 struct AppState {
     engine: EngineHandle,
@@ -44,6 +46,7 @@ async fn update_settings(
     next: EngineSettings,
 ) -> Result<(), String> {
     save_settings(&state.settings_path, &next).map_err(|err| err.to_string())?;
+    apply_launch_at_startup(&app, next.launch_at_startup).map_err(|err| err.to_string())?;
     {
         *state.push_to_talk_hotkey.write() = next.push_to_talk_hotkey.clone();
     }
@@ -89,10 +92,16 @@ fn run() -> Result<()> {
     let settings = load_settings(&settings_path)?;
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None::<Vec<&str>>,
+        ))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let app_handle = app.handle().clone();
             setup_tray(&app_handle)?;
+            configure_runtime_env(&app_handle);
 
             let model_root = detect_model_root(&app_handle);
             let engine = core::spawn_engine(settings.clone(), model_root)
@@ -105,6 +114,9 @@ fn run() -> Result<()> {
                 push_to_talk_hotkey: hotkey,
             };
             app.manage(state);
+            if let Err(error) = apply_launch_at_startup(&app_handle, settings.launch_at_startup) {
+                eprintln!("failed to sync launch at startup: {error}");
+            }
 
             register_shortcuts(&app_handle, &engine, &settings.push_to_talk_hotkey)
                 .context("failed to register keyboard shortcuts")?;
@@ -113,7 +125,10 @@ fn run() -> Result<()> {
             let status = permissions::check_permissions();
             engine.send_blocking(EngineCommand::PermissionsChecked(status));
 
-            wire_engine_events(app_handle, engine);
+            wire_engine_events(app_handle.clone(), engine);
+            if !cfg!(debug_assertions) {
+                spawn_update_checker(app_handle);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -231,6 +246,49 @@ fn normalize_shortcut(raw: &str) -> String {
     raw.replace("Cmd", "Command")
         .replace("Option", "Alt")
         .replace("Esc", "Escape")
+}
+
+fn apply_launch_at_startup(app: &tauri::AppHandle, enabled: bool) -> Result<()> {
+    let autolaunch = app.autolaunch();
+    let is_enabled = autolaunch.is_enabled()?;
+    if is_enabled == enabled {
+        return Ok(());
+    }
+
+    if enabled {
+        autolaunch.enable()?;
+    } else {
+        autolaunch.disable()?;
+    }
+    Ok(())
+}
+
+fn spawn_update_checker(app: tauri::AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let updater = match app.updater() {
+            Ok(updater) => updater,
+            Err(error) => {
+                eprintln!("updater init failed: {error}");
+                return;
+            }
+        };
+
+        let update = match updater.check().await {
+            Ok(update) => update,
+            Err(error) => {
+                eprintln!("update check failed: {error}");
+                return;
+            }
+        };
+
+        let Some(update) = update else {
+            return;
+        };
+
+        if let Err(error) = update.download_and_install(|_, _| {}, || {}).await {
+            eprintln!("update install failed: {error}");
+        }
+    });
 }
 
 fn wire_engine_events(app: tauri::AppHandle, engine: EngineHandle) {
@@ -400,4 +458,15 @@ fn detect_model_root(app: &tauri::AppHandle) -> PathBuf {
 
 fn model_dir_looks_ready(path: &Path) -> bool {
     path.join("ggml-base.en.bin").exists() && path.join("porcupine_params.pv").exists()
+}
+
+fn configure_runtime_env(app: &tauri::AppHandle) {
+    if std::env::var_os("LUMI_PORCUPINE_DYLIB").is_none() {
+        if let Ok(resource_dir) = app.path().resource_dir() {
+            let bundled = resource_dir.join("models/libpv_porcupine.dylib");
+            if bundled.exists() {
+                std::env::set_var("LUMI_PORCUPINE_DYLIB", bundled);
+            }
+        }
+    }
 }

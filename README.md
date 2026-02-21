@@ -98,9 +98,36 @@ cargo tauri dev --no-watch
 cargo tauri build
 ```
 
+## Login startup + auto updates
+
+- `Launch at startup` in Settings is now applied through `tauri-plugin-autostart` (macOS LaunchAgent).
+- On production builds, the app checks GitHub Releases at startup and installs updates automatically when available.
+- Updater endpoint is configured to:
+  - `https://github.com/jordanheckler-HMM/lumi_type/releases/latest/download/latest.json`
+
+## GitHub release flow
+
+1. Ensure repository secrets are set:
+   - `TAURI_SIGNING_PRIVATE_KEY`
+   - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+2. Push a version tag:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+3. GitHub Actions workflow `release.yml` will:
+   - Download required runtime assets
+   - Build signed macOS bundles (`.app`, `.dmg`) and updater artifacts
+   - Create a draft GitHub Release with all artifacts attached
+
+Promote the draft release to publish it. Published assets become available to app auto-update checks.
+
 ## Privacy behavior
 
-- No network calls in runtime path
+- Dictation path remains fully local/offline (wake, VAD, STT, injection)
+- Network access is only used for optional GitHub release update checks in production builds
 - No audio persistence
 - No transcript logging
 - No analytics

@@ -15,7 +15,9 @@ anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tauri = { version = "2.10.2", features = ["tray-icon", "macos-private-api"] }
+tauri-plugin-autostart = "2.5.1"
 tauri-plugin-global-shortcut = "2.3.1"
+tauri-plugin-updater = "2.10.0"
 tokio = { version = "1.37", features = ["rt-multi-thread", "macros", "sync", "time"] }
 cpal = "0.15"
 webrtc-vad = "0.4"
