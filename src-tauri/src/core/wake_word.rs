@@ -1,5 +1,5 @@
 use std::{
-    ffi::CString,
+    ffi::{CStr, CString},
     os::raw::{c_char, c_int, c_void},
     path::{Path, PathBuf},
 };
@@ -20,6 +20,7 @@ pub struct WakeWordConfig {
     pub model_path: PathBuf,
     pub keyword_path: PathBuf,
     pub keyword_fallback_path: Option<PathBuf>,
+    pub access_key: Option<String>,
     pub sensitivity: f32,
 }
 
@@ -30,6 +31,7 @@ impl WakeWordConfig {
             model_path: model_root.join("porcupine_params.pv"),
             keyword_path: model_root.join("hey-lumi-mac.ppn"),
             keyword_fallback_path: Some(model_root.join("porcupine_mac.ppn")),
+            access_key: None,
             sensitivity,
         }
     }
@@ -47,6 +49,9 @@ impl WakeWordConfig {
         }
         if let Ok(value) = std::env::var("LUMI_PORCUPINE_FALLBACK_KEYWORD") {
             self.keyword_fallback_path = Some(PathBuf::from(value));
+        }
+        if let Ok(value) = std::env::var("LUMI_PORCUPINE_ACCESS_KEY") {
+            self.access_key = Some(value);
         }
         self
     }
@@ -98,19 +103,47 @@ type PorcupineInitFn = unsafe extern "C" fn(
 ) -> c_int;
 
 type PorcupineFrameLengthFn = unsafe extern "C" fn() -> c_int;
-type PorcupineProcessFn = unsafe extern "C" fn(
+type PorcupineProcessLegacyFn = unsafe extern "C" fn(
     object: *mut c_void,
     pcm: *const i16,
     is_wake_word_detected: *mut bool,
 ) -> c_int;
+type PorcupineVersionFn = unsafe extern "C" fn() -> *const c_char;
+type PorcupineInitV2Fn = unsafe extern "C" fn(
+    access_key: *const c_char,
+    model_file_path: *const c_char,
+    num_keywords: c_int,
+    keyword_file_paths: *const *const c_char,
+    sensitivities: *const f32,
+    object_out: *mut *mut c_void,
+) -> c_int;
+type PorcupineInitV4Fn = unsafe extern "C" fn(
+    access_key: *const c_char,
+    model_file_path: *const c_char,
+    device: *const c_char,
+    num_keywords: c_int,
+    keyword_file_paths: *const *const c_char,
+    sensitivities: *const f32,
+    object_out: *mut *mut c_void,
+) -> c_int;
+type PorcupineProcessFn = unsafe extern "C" fn(
+    object: *mut c_void,
+    pcm: *const i16,
+    keyword_index: *mut c_int,
+) -> c_int;
 type PorcupineDeleteFn = unsafe extern "C" fn(object: *mut c_void);
+
+enum PorcupineProcessMode {
+    Legacy(PorcupineProcessLegacyFn),
+    KeywordIndex(PorcupineProcessFn),
+}
 
 struct PorcupineDetector {
     _library: Library,
     object: *mut c_void,
     keyword_path: PathBuf,
     frame_length: usize,
-    process: PorcupineProcessFn,
+    process_mode: PorcupineProcessMode,
     delete: PorcupineDeleteFn,
     frame_buffer: Vec<i16>,
 }
@@ -145,20 +178,15 @@ impl PorcupineDetector {
         let library = unsafe { Library::new(&config.porcupine_library) }
             .with_context(|| format!("unable to load Porcupine dylib at {}", config.porcupine_library.display()))?;
 
-        let init: PorcupineInitFn = unsafe {
+        let version_fn: PorcupineVersionFn = unsafe {
             *library
-                .get(b"pv_porcupine_init\0")
-                .context("missing symbol pv_porcupine_init")?
+                .get(b"pv_porcupine_version\0")
+                .context("missing symbol pv_porcupine_version")?
         };
         let frame_length_fn: PorcupineFrameLengthFn = unsafe {
             *library
                 .get(b"pv_porcupine_frame_length\0")
                 .context("missing symbol pv_porcupine_frame_length")?
-        };
-        let process: PorcupineProcessFn = unsafe {
-            *library
-                .get(b"pv_porcupine_process\0")
-                .context("missing symbol pv_porcupine_process")?
         };
         let delete: PorcupineDeleteFn = unsafe {
             *library
@@ -166,19 +194,112 @@ impl PorcupineDetector {
                 .context("missing symbol pv_porcupine_delete")?
         };
 
-        let model = CString::new(config.model_path.to_string_lossy().to_string())?;
-        let keyword = CString::new(keyword_path.to_string_lossy().to_string())?;
-        let mut object = std::ptr::null_mut();
-        let status = unsafe {
-            init(
-                model.as_ptr(),
-                keyword.as_ptr(),
-                config.sensitivity.clamp(0.0, 1.0),
-                &mut object,
-            )
+        let version = unsafe {
+            let ptr = version_fn();
+            if ptr.is_null() {
+                anyhow::bail!("Porcupine returned null version string");
+            }
+            CStr::from_ptr(ptr).to_string_lossy().to_string()
         };
+        let major = parse_version_major(&version)
+            .with_context(|| format!("unsupported Porcupine version string: {version}"))?;
+
+        let mut object = std::ptr::null_mut();
+        let model = CString::new(config.model_path.to_string_lossy().to_string())?;
+        let status;
+        let process_mode;
+
+        if major >= 4 {
+            let init: PorcupineInitV4Fn = unsafe {
+                *library
+                    .get(b"pv_porcupine_init\0")
+                    .context("missing symbol pv_porcupine_init")?
+            };
+            let process: PorcupineProcessFn = unsafe {
+                *library
+                    .get(b"pv_porcupine_process\0")
+                    .context("missing symbol pv_porcupine_process")?
+            };
+
+            let access_key = config
+                .access_key
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+                .context("Porcupine v4 requires LUMI_PORCUPINE_ACCESS_KEY")?;
+            let access_key = CString::new(access_key.as_str())?;
+            let device = CString::new("best")?;
+            let keyword = CString::new(keyword_path.to_string_lossy().to_string())?;
+            let keyword_paths = [keyword.as_ptr()];
+            let sensitivities = [config.sensitivity.clamp(0.0, 1.0)];
+            status = unsafe {
+                init(
+                    access_key.as_ptr(),
+                    model.as_ptr(),
+                    device.as_ptr(),
+                    keyword_paths.len() as c_int,
+                    keyword_paths.as_ptr(),
+                    sensitivities.as_ptr(),
+                    &mut object,
+                )
+            };
+            process_mode = PorcupineProcessMode::KeywordIndex(process);
+        } else if major >= 2 {
+            let init: PorcupineInitV2Fn = unsafe {
+                *library
+                    .get(b"pv_porcupine_init\0")
+                    .context("missing symbol pv_porcupine_init")?
+            };
+            let process: PorcupineProcessFn = unsafe {
+                *library
+                    .get(b"pv_porcupine_process\0")
+                    .context("missing symbol pv_porcupine_process")?
+            };
+
+            let access_key = config
+                .access_key
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+                .context("Porcupine v2+ requires LUMI_PORCUPINE_ACCESS_KEY")?;
+            let access_key = CString::new(access_key.as_str())?;
+            let keyword = CString::new(keyword_path.to_string_lossy().to_string())?;
+            let keyword_paths = [keyword.as_ptr()];
+            let sensitivities = [config.sensitivity.clamp(0.0, 1.0)];
+            status = unsafe {
+                init(
+                    access_key.as_ptr(),
+                    model.as_ptr(),
+                    keyword_paths.len() as c_int,
+                    keyword_paths.as_ptr(),
+                    sensitivities.as_ptr(),
+                    &mut object,
+                )
+            };
+            process_mode = PorcupineProcessMode::KeywordIndex(process);
+        } else {
+            let init: PorcupineInitFn = unsafe {
+                *library
+                    .get(b"pv_porcupine_init\0")
+                    .context("missing symbol pv_porcupine_init")?
+            };
+            let process: PorcupineProcessLegacyFn = unsafe {
+                *library
+                    .get(b"pv_porcupine_process\0")
+                    .context("missing symbol pv_porcupine_process")?
+            };
+            let keyword = CString::new(keyword_path.to_string_lossy().to_string())?;
+            status = unsafe {
+                init(
+                    model.as_ptr(),
+                    keyword.as_ptr(),
+                    config.sensitivity.clamp(0.0, 1.0),
+                    &mut object,
+                )
+            };
+            process_mode = PorcupineProcessMode::Legacy(process);
+        }
+
         if status != 0 || object.is_null() {
-            anyhow::bail!("Porcupine init failed with status {status}");
+            anyhow::bail!("Porcupine init failed with status {status} (version {version})");
         }
 
         let frame_length = unsafe { frame_length_fn() as usize };
@@ -188,7 +309,7 @@ impl PorcupineDetector {
             object,
             keyword_path,
             frame_length,
-            process,
+            process_mode,
             delete,
             frame_buffer: Vec::with_capacity(frame_length * 2),
         })
@@ -204,8 +325,18 @@ impl PorcupineDetector {
 
         while self.frame_buffer.len() >= self.frame_length {
             let pcm = &self.frame_buffer[..self.frame_length];
-            let mut detected = false;
-            let status = unsafe { (self.process)(self.object, pcm.as_ptr(), &mut detected) };
+            let (status, detected) = match self.process_mode {
+                PorcupineProcessMode::Legacy(process) => {
+                    let mut detected = false;
+                    let status = unsafe { process(self.object, pcm.as_ptr(), &mut detected) };
+                    (status, detected)
+                }
+                PorcupineProcessMode::KeywordIndex(process) => {
+                    let mut keyword_index = -1;
+                    let status = unsafe { process(self.object, pcm.as_ptr(), &mut keyword_index) };
+                    (status, keyword_index >= 0)
+                }
+            };
             self.frame_buffer.drain(..self.frame_length);
             if status != 0 {
                 anyhow::bail!("Porcupine process failed with status {status}");
@@ -224,5 +355,27 @@ impl Drop for PorcupineDetector {
         unsafe {
             (self.delete)(self.object);
         }
+    }
+}
+
+fn parse_version_major(version: &str) -> Result<u32> {
+    let first = version
+        .split('.')
+        .next()
+        .context("missing major version")?;
+    first
+        .parse::<u32>()
+        .with_context(|| format!("invalid major version {first}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_version_major;
+
+    #[test]
+    fn parses_semver_major() {
+        assert_eq!(parse_version_major("4.0.0").unwrap(), 4);
+        assert_eq!(parse_version_major("3.1.2").unwrap(), 3);
+        assert_eq!(parse_version_major("1.9").unwrap(), 1);
     }
 }

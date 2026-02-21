@@ -64,7 +64,10 @@ export LUMI_MODEL_DIR="$(pwd)/src-tauri/models"
 export LUMI_PORCUPINE_MODEL="$(pwd)/src-tauri/models/porcupine_params.pv"
 export LUMI_PORCUPINE_KEYWORD="$(pwd)/src-tauri/models/hey-lumi-mac.ppn"
 export LUMI_PORCUPINE_FALLBACK_KEYWORD="$(pwd)/src-tauri/models/porcupine_mac.ppn"
+export LUMI_PORCUPINE_ACCESS_KEY="YOUR_PICOVOICE_ACCESS_KEY"
 ```
+
+Note: current Porcupine runtimes require `LUMI_PORCUPINE_ACCESS_KEY` for wake-word initialization. If not provided, LumiType starts normally and push-to-talk still works, but wake-word detection is disabled.
 
 ## Build and run
 
